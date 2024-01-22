@@ -20,7 +20,7 @@ def parse_args():
 	parser.add_argument('-n', '--name', default='Anhad', help='Name to put in when2meet')
 	parser.add_argument('-ec', '--exclude-calendars', nargs='+', default=['MITOC', 'bike', 'Camelot', 'MAD'],
 						help='List of keywords to exclude from calendar names (default: exclude_keyword1, exclude_keyword2)')
-	parser.add_argument('-ee', '--exclude-events', nargs='+', default=['W1MX', 'Chaus'],
+	parser.add_argument('-ee', '--exclude-events', nargs='+', default=['Chaus'],
 						help='List of keywords to exclude from event names (default: exclude_event_keyword1, exclude_event_keyword2)')
 	return parser.parse_args()
 
