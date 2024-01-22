@@ -12,13 +12,17 @@ from datetime import datetime,timezone,timedelta
 import requests
 import mydate
 import sys
+import argparse
 
-name = 'Ethan Bensman'
-url = sys.argv[1]
-if url == None:
-	print("No URL Given")
-	exit(1)
-
+def parse_args():
+	parser = argparse.ArgumentParser(description='Get calendar events with exclusion options')
+	parser.add_argument('url', help='URL of when2meet')
+	parser.add_argument('-n', '--name', default='Anhad', help='Name to put in when2meet')
+	parser.add_argument('-ec', '--exclude-calendars', nargs='+', default=['MITOC', 'bike', 'Camelot', 'MAD'],
+						help='List of keywords to exclude from calendar names (default: exclude_keyword1, exclude_keyword2)')
+	parser.add_argument('-ee', '--exclude-events', nargs='+', default=['W1MX', 'Chaus'],
+						help='List of keywords to exclude from event names (default: exclude_event_keyword1, exclude_event_keyword2)')
+	return parser.parse_args()
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 
@@ -33,12 +37,12 @@ def isDate(pDate):
 def getYear(date, time):
 	year = datetime.now().year
 	return year
-	#if datetime.now() > datetime.strptime((date + ' ' + str(year) + '  ' + time), '%b %d %Y %I %p'):
+	#if datetime.now() > datetime.strptime((date + ' ' + str(year) + '  ' + time), '%b %d %Y %I:%M %p'):
 	#	year += 1
 	#return year
 
 #gets list of events for date range in calendar
-def getEvents(dates,times):
+def getEvents(dates,times, exclude_calendars_keywords, exclude_events_keywords):
 	"""Shows basic usage of the Google Calendar API.
 	Prints the start and name of the next 10 events on the user's calendar.
 	"""
@@ -65,38 +69,45 @@ def getEvents(dates,times):
 
 
 	#creates datetime objects from string dates given
-	start_time = (datetime.strptime((dates[0] + ' ' + str(getYear(dates[0],times[0])) + ' ' + times[0]), '%b %d %Y %I %p')).isoformat('T')+ "Z"
+	start_time = (datetime.strptime((dates[0] + ' ' + str(getYear(dates[0],times[0])) + ' ' + times[0]), '%b %d %Y %I:%M %p')).isoformat('T')+ "Z"
 	# print(times)
 	# print(((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  ' + times[len(times)-1])))
 	# exit(1)
 	end_time = None
 	if times[len(times)-1] != "M":
-		end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  ' + times[len(times)-1]), '%b %d %Y %I %p')+timedelta(days=1)).isoformat('T')+ "Z"
+		end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  ' + times[len(times)-1]), '%b %d %Y %I:%M %p')+timedelta(days=1)).isoformat('T')+ "Z"
 	else:
-		end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  ' + "12 AM"), '%b %d %Y %I %p')+timedelta(days=1)).isoformat('T')+ "Z"
+		end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  ' + "12 AM"), '%b %d %Y %I:%M %p')+timedelta(days=1)).isoformat('T')+ "Z"
 
 	#end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  11 PM'), '%b %d %Y %I %p')).isoformat('T')+ "Z"
 
 
 	# Call the Calendar API
-	#now = datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
-	# page_token = None
-	# while True:
-	# 	calendar_list = service.calendarList().list(pageToken=page_token).execute()
-	# 	for calendar_list_entry in calendar_list['items']:
-	# 		print(calendar_list_entry['summary'])
-	# 	page_token = calendar_list.get('nextPageToken')
-	# 	if not page_token:
-	# 		break
-	events_result = service.events().list(calendarId='primary', timeMin=start_time, timeMax=end_time,
-										singleEvents=True,
-										orderBy='startTime').execute()
-	events = events_result.get('items', [])
 
-	# events_result = service.events().list(calendarId='Meetings', timeMin=start_time, timeMax=end_time,
-	# 									singleEvents=True,
-	# 									orderBy='startTime').execute()
-	# events.extend(events_result)
+	# Get events from all calendars
+	calendar_list = service.calendarList().list().execute().get('items', [])
+	events = []
+	for calendar in calendar_list:
+		shared_calendar_id = calendar['id']
+		
+		# Check if the calendar should be excluded based on keywords
+		exclude_calendar = any(keyword.lower() in calendar['summary'].lower() for keyword in exclude_calendars_keywords)
+		if not exclude_calendar:
+			events_result = service.events().list(
+				calendarId=shared_calendar_id,
+				timeMin=start_time,
+				timeMax=end_time,
+				singleEvents=True,
+				orderBy='startTime'
+			).execute().get('items', [])
+		
+			events.extend(events_result)
+
+	#color filter	
+	event = [event for event in events if 'colorId' not in event or int(event['colorId']) != 8]
+	
+	#keyword filter
+	event = [event for event in events if not any(keyword.lower() in event['summary'].lower() for keyword in exclude_events_keywords)]
 
 	if not events:
 		print('No upcoming events found.')
@@ -104,7 +115,7 @@ def getEvents(dates,times):
 	for event in events:
 		start = event['start'].get('dateTime', event['start'].get('date'))
 		end = event['end'].get('dateTime', event['end'].get('date'))
-		print(start, end, event['summary'])
+		print(start, end, event['summary'], event['colorId'] if 'colorId' in event else "Undefined")
 		#if it's an all day event, add it to the list of items to be removed from the list of dates
 		#this was done assuming all-day events are used as more of a reminder than an actual all-day event
 		if len(start) < 11:
@@ -115,7 +126,14 @@ def getEvents(dates,times):
 	return events
 
 def main():
-	driver = webdriver.Chrome()
+	args = parse_args()
+	driver = webdriver.Firefox()
+	name = args.name
+	url = args.url
+	if url == None:
+		print("No URL Given")
+		exit(1)
+
 	driver.get(url)
 
 	moreDates = True
@@ -150,9 +168,7 @@ def main():
 		except:
 			moreTimes = False
 
-
-
-	events = getEvents(dates,times)
+	events = getEvents(dates,times, args.exclude_calendars, args.exclude_events)
 	myEvents = []
 	for event in events:
 		startstr = event['start'].get('dateTime', event['start'].get('date'))
@@ -186,7 +202,7 @@ def main():
 	#marks which id's are associated with times i'm free
 	for rIdx, row in enumerate(grid):
 		for cIdx, num in enumerate(row):
-			starttime = (datetime.strptime((dates[rIdx] + ' ' + str(getYear(dates[rIdx],times[0])) + '  ' + times[0]), '%b %d %Y %I %p') + timedelta(minutes=15*cIdx))
+			starttime = (datetime.strptime((dates[rIdx] + ' ' + str(getYear(dates[rIdx],times[0])) + '  ' + times[0]), '%b %d %Y %I:%M %p') + timedelta(minutes=15*cIdx))
 			endtime = (starttime + timedelta(minutes=15))	#add 15 minute cushion to start and end of each event
 			dic[num] = True
 			for myEvent in myEvents:
@@ -204,7 +220,13 @@ def main():
 				pass
 	#keeps website open for review until process ended
 	while True:
-		pass
+		# check if the site has been closed by the user
+		try:
+			driver.find_element_by_xpath('//*[@id="SignIn"]/div/div/input')
+		except:
+			break
+			
+	driver.close()
 
 if __name__ == "__main__":
 	main()
