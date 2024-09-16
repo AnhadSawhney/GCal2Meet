@@ -7,6 +7,10 @@ from google.auth.transport.requests import Request
 #import pytz
 from bs4 import BeautifulSoup
 from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from datetime import datetime,timezone,timedelta
 import requests
@@ -18,7 +22,7 @@ def parse_args():
 	parser = argparse.ArgumentParser(description='Get calendar events with exclusion options')
 	parser.add_argument('url', help='URL of when2meet')
 	parser.add_argument('-n', '--name', default='Anhad', help='Name to put in when2meet')
-	parser.add_argument('-ec', '--exclude-calendars', nargs='+', default=['MITOC', 'bike', 'Camelot', 'MAD'],
+	parser.add_argument('-ec', '--exclude-calendars', nargs='+', default=['MITOC', 'bike', 'Camelot', 'MAD', 'social'],
 						help='List of keywords to exclude from calendar names (default: exclude_keyword1, exclude_keyword2)')
 	parser.add_argument('-ee', '--exclude-events', nargs='+', default=['Chaus'],
 						help='List of keywords to exclude from event names (default: exclude_event_keyword1, exclude_event_keyword2)')
@@ -75,9 +79,9 @@ def getEvents(dates,times, exclude_calendars_keywords, exclude_events_keywords):
 	# exit(1)
 	end_time = None
 	if times[len(times)-1] != "M":
-		end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  ' + times[len(times)-1]), '%b %d %Y %I:%M %p')+timedelta(days=1)).isoformat('T')+ "Z"
+		end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(times)-1])) + '  ' + times[len(times)-1]), '%b %d %Y %I:%M %p')+timedelta(days=1)).isoformat('T')+ "Z"
 	else:
-		end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  ' + "12 AM"), '%b %d %Y %I:%M %p')+timedelta(days=1)).isoformat('T')+ "Z"
+		end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(times)-1])) + '  ' + "12 AM"), '%b %d %Y %I:%M %p')+timedelta(days=1)).isoformat('T')+ "Z"
 
 	#end_time = (datetime.strptime((dates[len(dates)-1] + ' ' + str(getYear(dates[len(dates)-1],times[len(dates)-1])) + '  11 PM'), '%b %d %Y %I %p')).isoformat('T')+ "Z"
 
@@ -104,7 +108,9 @@ def getEvents(dates,times, exclude_calendars_keywords, exclude_events_keywords):
 			events.extend(events_result)
 
 	#color filter	
-	event = [event for event in events if 'colorId' not in event or int(event['colorId']) != 8]
+	for event in events:
+		if 'colorId' in event and int(event['colorId']) == 8:
+			events.remove(event)
 	
 	#keyword filter
 	event = [event for event in events if not any(keyword.lower() in event['summary'].lower() for keyword in exclude_events_keywords)]
@@ -115,7 +121,7 @@ def getEvents(dates,times, exclude_calendars_keywords, exclude_events_keywords):
 	for event in events:
 		start = event['start'].get('dateTime', event['start'].get('date'))
 		end = event['end'].get('dateTime', event['end'].get('date'))
-		print(start, end, event['summary'], event['colorId'] if 'colorId' in event else "Undefined")
+		print(start, end, event['summary'], event['colorId'] if 'colorId' in event else "Undefined Color")
 		#if it's an all day event, add it to the list of items to be removed from the list of dates
 		#this was done assuming all-day events are used as more of a reminder than an actual all-day event
 		if len(start) < 11:
@@ -135,21 +141,29 @@ def main():
 		exit(1)
 
 	driver.get(url)
+	delay = 3 # seconds
+	try:
+		myElem = WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.ID, 'GroupGrid')))
+		print("Page is ready!")
+	except TimeoutException:
+		print("Loading took too much time!")
 
 	moreDates = True
 	i = 1
 	dates = []
-
+	
 	#this gets dates polled for by when2meet
 	while moreDates:
 		try:
-			element = driver.find_element_by_xpath(('//*[@id="GroupGrid"]/div[3]/div[' + str(i) +']'))
+			element = driver.find_element("xpath", '//*[@id="GroupGrid"]/div[3]/div[' + str(i) +']')
 			block = element.text
+			#print('Found date: '+block)
 			date = (block.split("\n"))[0]
 			i+=1
 			if isDate(date):
 				dates.append(date)
-		except:
+		except Exception as e:
+			#print(e)
 			moreDates = False
 
 	#gets times polled for by when2meet
@@ -158,7 +172,7 @@ def main():
 	times = []
 	while moreTimes:
 		try:
-			element = driver.find_element_by_xpath(('//*[@id="GroupGrid"]/div[2]/div['+str(i)+']/div/div'))
+			element = driver.find_element("xpath", '//*[@id="GroupGrid"]/div[2]/div['+str(i)+']/div/div')
 			block = element.text
 			time = (block.split("M"))[0]+"M"
 			if "Noon" in time:
@@ -168,7 +182,7 @@ def main():
 		except:
 			moreTimes = False
 
-	events = getEvents(dates,times, args.exclude_calendars, args.exclude_events)
+	events = getEvents(dates, times, args.exclude_calendars, args.exclude_events)
 	myEvents = []
 	for event in events:
 		startstr = event['start'].get('dateTime', event['start'].get('date'))
@@ -179,9 +193,9 @@ def main():
 		myEvents.append(mydate.myDate(start,end))
 
 	
-	element = driver.find_element_by_xpath(('//*[@id="name"]'))
+	element = driver.find_element("xpath", '//*[@id="name"]')
 	element.send_keys(name)
-	element = driver.find_element_by_xpath('//*[@id="SignIn"]/div/div/input')
+	element = driver.find_element("xpath", '//*[@id="SignIn"]/div/div/input')
 	element.click()
 
 
@@ -203,7 +217,7 @@ def main():
 	for rIdx, row in enumerate(grid):
 		for cIdx, num in enumerate(row):
 			starttime = (datetime.strptime((dates[rIdx] + ' ' + str(getYear(dates[rIdx],times[0])) + '  ' + times[0]), '%b %d %Y %I:%M %p') + timedelta(minutes=15*cIdx))
-			endtime = (starttime + timedelta(minutes=15))	#add 15 minute cushion to start and end of each event
+			endtime = (starttime + timedelta(minutes=15))
 			dic[num] = True
 			for myEvent in myEvents:
 				if myEvent.inDate(starttime,endtime) == True:
@@ -212,21 +226,21 @@ def main():
 	#clicks divs where I'm free
 	for element in dic.keys():
 		if dic[element] == True:
-			el = driver.find_element_by_xpath(('//*[@id="' + element + '"]'))
+			el = driver.find_element("xpath", '//*[@id="' + element + '"]')
 			try:
 				el.click()
 			except:
-				print("UH OH")
+				print("UH OH COULDN'T CLICK: " + el)
 				pass
 	#keeps website open for review until process ended
 	while True:
 		# check if the site has been closed by the user
 		try:
-			driver.find_element_by_xpath('//*[@id="SignIn"]/div/div/input')
+			driver.find_element("xpath", '//*[@id="SignIn"]/div/div/input')
 		except:
 			break
 			
-	driver.close()
+	#driver.close()
 
 if __name__ == "__main__":
 	main()
